@@ -51,6 +51,13 @@ resource "aws_lambda_function" "scale_up" {
       subnet_ids         = var.lambda_subnet_ids
     }
   }
+
+  dynamic "tracing_config" {
+    for_each = var.lambda_tracing_mode != null ? [true] : []
+    content {
+      mode = var.lambda_tracing_mode
+    }
+  }
 }
 
 resource "aws_cloudwatch_log_group" "scale_up" {
@@ -111,14 +118,6 @@ resource "aws_iam_role_policy" "service_linked_role" {
   policy = templatefile("${path.module}/policies/service-linked-role-create-policy.json", { aws_partition = var.aws_partition })
 }
 
-resource "aws_iam_role_policy" "lambda_scale_up_vpc" {
-  count = length(var.lambda_subnet_ids) > 0 && length(var.lambda_security_group_ids) > 0 ? 1 : 0
-  name  = "${var.prefix}-lambda-scale-up-vpc"
-  role  = aws_iam_role.scale_up.id
-
-  policy = file("${path.module}/policies/lambda-vpc.json")
-}
-
 resource "aws_iam_role_policy_attachment" "scale_up_vpc_execution_role" {
   count      = length(var.lambda_subnet_ids) > 0 ? 1 : 0
   role       = aws_iam_role.scale_up.name
@@ -129,4 +128,10 @@ resource "aws_iam_role_policy_attachment" "ami_id_ssm_parameter_read" {
   count      = var.ami_id_ssm_parameter_name != null ? 1 : 0
   role       = aws_iam_role.scale_up.name
   policy_arn = aws_iam_policy.ami_id_ssm_parameter_read[0].arn
+}
+
+resource "aws_iam_role_policy" "scale_up_xray" {
+  count  = var.lambda_tracing_mode != null ? 1 : 0
+  policy = data.aws_iam_policy_document.lambda_xray[0].json
+  role   = aws_iam_role.scale_up.name
 }

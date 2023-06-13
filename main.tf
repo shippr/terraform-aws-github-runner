@@ -154,6 +154,7 @@ module "webhook" {
   lambda_architecture                           = var.lambda_architecture
   lambda_zip                                    = var.webhook_lambda_zip
   lambda_timeout                                = var.webhook_lambda_timeout
+  lambda_tracing_mode                           = var.lambda_tracing_mode
   logging_retention_in_days                     = var.logging_retention_in_days
   logging_kms_key_id                            = var.logging_kms_key_id
 
@@ -223,6 +224,7 @@ module "runners" {
   egress_rules                         = var.runner_egress_rules
   runner_additional_security_group_ids = var.runner_additional_security_group_ids
   metadata_options                     = var.runner_metadata_options
+  credit_specification                 = var.runner_credit_specification
 
   enable_runner_binaries_syncer    = var.enable_runner_binaries_syncer
   lambda_s3_bucket                 = var.lambda_s3_bucket
@@ -235,6 +237,7 @@ module "runners" {
   lambda_timeout_scale_down        = var.runners_scale_down_lambda_timeout
   lambda_subnet_ids                = var.lambda_subnet_ids
   lambda_security_group_ids        = var.lambda_security_group_ids
+  lambda_tracing_mode              = var.lambda_tracing_mode
   logging_retention_in_days        = var.logging_retention_in_days
   logging_kms_key_id               = var.logging_kms_key_id
   enable_cloudwatch_agent          = var.enable_cloudwatch_agent
@@ -282,7 +285,7 @@ module "runner_binaries" {
   prefix = var.prefix
   tags   = local.tags
 
-  distribution_bucket_name = "${var.prefix}-dist-${random_string.random.result}"
+  distribution_bucket_name = lower("${var.prefix}-dist-${random_string.random.result}")
   s3_logging_bucket        = var.runner_binaries_s3_logging_bucket
   s3_logging_bucket_prefix = var.runner_binaries_s3_logging_bucket_prefix
 
@@ -297,11 +300,13 @@ module "runner_binaries" {
   lambda_architecture             = var.lambda_architecture
   lambda_zip                      = var.runner_binaries_syncer_lambda_zip
   lambda_timeout                  = var.runner_binaries_syncer_lambda_timeout
+  lambda_tracing_mode             = var.lambda_tracing_mode
   logging_retention_in_days       = var.logging_retention_in_days
   logging_kms_key_id              = var.logging_kms_key_id
 
   enable_event_rule_binaries_syncer    = var.enable_event_rule_binaries_syncer
   server_side_encryption_configuration = var.runner_binaries_s3_sse_configuration
+  s3_versioning                        = var.runner_binaries_s3_versioning
 
   role_path                 = var.role_path
   role_permissions_boundary = var.role_permissions_boundary

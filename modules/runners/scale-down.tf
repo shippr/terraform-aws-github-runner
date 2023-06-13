@@ -43,6 +43,13 @@ resource "aws_lambda_function" "scale_down" {
       subnet_ids         = var.lambda_subnet_ids
     }
   }
+
+  dynamic "tracing_config" {
+    for_each = var.lambda_tracing_mode != null ? [true] : []
+    content {
+      mode = var.lambda_tracing_mode
+    }
+  }
 }
 
 resource "aws_cloudwatch_log_group" "scale_down" {
@@ -97,16 +104,14 @@ resource "aws_iam_role_policy" "scale_down_logging" {
   })
 }
 
-resource "aws_iam_role_policy" "lambda_scale_down_vpc" {
-  count = length(var.lambda_subnet_ids) > 0 && length(var.lambda_security_group_ids) > 0 ? 1 : 0
-  name  = "${var.prefix}-lambda-scale-down-vpc"
-  role  = aws_iam_role.scale_down.id
-
-  policy = file("${path.module}/policies/lambda-vpc.json")
-}
-
 resource "aws_iam_role_policy_attachment" "scale_down_vpc_execution_role" {
   count      = length(var.lambda_subnet_ids) > 0 ? 1 : 0
   role       = aws_iam_role.scale_down.name
   policy_arn = "arn:${var.aws_partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy" "scale_down_xray" {
+  count  = var.lambda_tracing_mode != null ? 1 : 0
+  policy = data.aws_iam_policy_document.lambda_xray[0].json
+  role   = aws_iam_role.scale_down.name
 }

@@ -49,8 +49,9 @@ module "runners" {
   idle_config                          = each.value.runner_config.idle_config
   enable_ssm_on_runners                = each.value.runner_config.enable_ssm_on_runners
   egress_rules                         = var.runner_egress_rules
-  runner_additional_security_group_ids = var.runner_additional_security_group_ids
+  runner_additional_security_group_ids = coalesce(each.value.runner_config.runner_additional_security_group_ids, var.runner_additional_security_group_ids)
   metadata_options                     = each.value.runner_config.runner_metadata_options
+  credit_specification                 = each.value.runner_config.credit_specification
 
   enable_runner_binaries_syncer    = each.value.runner_config.enable_runner_binaries_syncer
   lambda_s3_bucket                 = var.lambda_s3_bucket
@@ -63,6 +64,7 @@ module "runners" {
   lambda_timeout_scale_down        = var.runners_scale_down_lambda_timeout
   lambda_subnet_ids                = var.lambda_subnet_ids
   lambda_security_group_ids        = var.lambda_security_group_ids
+  lambda_tracing_mode              = var.lambda_tracing_mode
   logging_retention_in_days        = var.logging_retention_in_days
   logging_kms_key_id               = var.logging_kms_key_id
   enable_cloudwatch_agent          = each.value.runner_config.enable_cloudwatch_agent

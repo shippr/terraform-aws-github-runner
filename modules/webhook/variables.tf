@@ -117,7 +117,7 @@ variable "webhook_lambda_apigateway_access_log_settings" {
 }
 
 variable "repository_white_list" {
-  description = "List of repositories allowed to use the github app"
+  description = "List of github repository full names (owner/repo_name) that will be allowed to use the github app. Leave empty for no filtering."
   type        = list(string)
   default     = []
 }
@@ -184,4 +184,10 @@ variable "github_app_parameters" {
   type = object({
     webhook_secret = map(string)
   })
+}
+
+variable "lambda_tracing_mode" {
+  description = "Enable X-Ray tracing for the lambda functions."
+  type        = string
+  default     = null
 }
