@@ -77,6 +77,12 @@ variable "custom_shell_commands" {
   default     = []
 }
 
+variable "temporary_security_group_source_public_ip" {
+  description = "When enabled, use public IP of the host (obtained from https://checkip.amazonaws.com) as CIDR block to be authorized access to the instance, when packer is creating a temporary security group. Note: If you specify `security_group_id` then this input is ignored."
+  type        = bool
+  default     = false
+}
+
 data "http" github_runner_release_json {
   url = "https://api.github.com/repos/actions/runner/releases/latest"
   request_headers = {
@@ -90,15 +96,17 @@ locals {
 }
 
 source "amazon-ebs" "githubrunner" {
-  ami_name                    = "github-runner-amzn2-x86_64-${formatdate("YYYYMMDDhhmm", timestamp())}"
-  instance_type               = var.instance_type
-  region                      = var.region
-  security_group_id           = var.security_group_id
-  subnet_id                   = var.subnet_id
-  associate_public_ip_address = var.associate_public_ip_address
+  ami_name                                  = "github-runner-al2023-x86_64-${formatdate("YYYYMMDDhhmm", timestamp())}"
+  instance_type                             = var.instance_type
+  region                                    = var.region
+  security_group_id                         = var.security_group_id
+  subnet_id                                 = var.subnet_id
+  associate_public_ip_address               = var.associate_public_ip_address
+  temporary_security_group_source_public_ip = var.temporary_security_group_source_public_ip
+
   source_ami_filter {
     filters = {
-      name                = "amzn2-ami-kernel-5.*-hvm-*-x86_64-gp2"
+      name                = "al2023-ami-2023.*-kernel-6.*-x86_64"
       root-device-type    = "ebs"
       virtualization-type = "hvm"
     }
@@ -110,7 +118,7 @@ source "amazon-ebs" "githubrunner" {
     var.global_tags,
     var.ami_tags,
     {
-      OS_Version    = "amzn2"
+      OS_Version    = "al2023"
       Release       = "Latest"
       Base_AMI_Name = "{{ .SourceAMIName }}"
   })
@@ -136,9 +144,9 @@ build {
   provisioner "shell" {
     environment_vars = []
     inline = concat([
-      "sudo yum update -y",
-      "sudo yum install -y amazon-cloudwatch-agent curl jq git",
-      "sudo amazon-linux-extras install docker",
+      "sudo dnf upgrade-minimal -y",
+      "sudo dnf install -y amazon-cloudwatch-agent jq git docker",
+      "sudo dnf install -y --allowerasing curl",
       "sudo systemctl enable docker.service",
       "sudo systemctl enable containerd.service",
       "sudo service docker start",

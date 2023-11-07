@@ -8,8 +8,7 @@ locals {
     key_base64 = module.ssm.parameters.github_app_key_base64
   }
 
-  default_runner_labels = "self-hosted,${var.runner_os},${var.runner_architecture}"
-  runner_labels         = var.runner_extra_labels != "" ? "${local.default_runner_labels},${var.runner_extra_labels}" : local.default_runner_labels
+  runner_labels = sort(distinct(concat(["self-hosted", var.runner_os, var.runner_architecture], var.runner_extra_labels)))
 
   ssm_root_path = var.ssm_paths.use_prefix ? "/${var.ssm_paths.root}/${var.prefix}" : "/${var.ssm_paths.root}"
 }
@@ -135,7 +134,7 @@ module "webhook" {
       arn : aws_sqs_queue.queued_builds.arn
       fifo : var.enable_fifo_build_queue
       matcherConfig : {
-        labelMatchers : [split(",", local.runner_labels)]
+        labelMatchers : [local.runner_labels]
         exactMatch : var.enable_runner_workflow_job_labels_check_all
       }
     }
@@ -208,6 +207,7 @@ module "runners" {
   github_app_parameters                = local.github_app_parameters
   enable_organization_runners          = var.enable_organization_runners
   enable_ephemeral_runners             = var.enable_ephemeral_runners
+  enable_jit_config                    = var.enable_jit_config
   enable_job_queued_check              = var.enable_job_queued_check
   disable_runner_autoupdate            = var.disable_runner_autoupdate
   enable_managed_runner_security_group = var.enable_managed_runner_security_group
@@ -215,7 +215,7 @@ module "runners" {
   scale_down_schedule_expression       = var.scale_down_schedule_expression
   minimum_running_time_in_minutes      = var.minimum_running_time_in_minutes
   runner_boot_time_in_minutes          = var.runner_boot_time_in_minutes
-  runner_extra_labels                  = var.runner_extra_labels
+  runner_labels                        = local.runner_labels
   runner_as_root                       = var.runner_as_root
   runner_run_as                        = var.runner_run_as
   runners_maximum_count                = var.runners_maximum_count
@@ -248,6 +248,8 @@ module "runners" {
 
   scale_up_reserved_concurrent_executions = var.scale_up_reserved_concurrent_executions
 
+  associate_public_ipv4_address = var.associate_public_ipv4_address
+
   instance_profile_path     = var.instance_profile_path
   role_path                 = var.role_path
   role_permissions_boundary = var.role_permissions_boundary
@@ -275,6 +277,8 @@ module "runners" {
   pool_lambda_timeout                        = var.pool_lambda_timeout
   pool_runner_owner                          = var.pool_runner_owner
   pool_lambda_reserved_concurrent_executions = var.pool_lambda_reserved_concurrent_executions
+
+  ssm_housekeeper = var.runners_ssm_housekeeper
 }
 
 module "runner_binaries" {
@@ -289,9 +293,8 @@ module "runner_binaries" {
   s3_logging_bucket        = var.runner_binaries_s3_logging_bucket
   s3_logging_bucket_prefix = var.runner_binaries_s3_logging_bucket_prefix
 
-  runner_os                        = var.runner_os
-  runner_architecture              = var.runner_architecture
-  runner_allow_prerelease_binaries = var.runner_allow_prerelease_binaries
+  runner_os           = var.runner_os
+  runner_architecture = var.runner_architecture
 
   lambda_s3_bucket                = var.lambda_s3_bucket
   syncer_lambda_s3_key            = var.syncer_lambda_s3_key
@@ -317,6 +320,37 @@ module "runner_binaries" {
   lambda_security_group_ids = var.lambda_security_group_ids
   aws_partition             = var.aws_partition
 
-
   lambda_principals = var.lambda_principals
+}
+
+module "ami_housekeeper" {
+  count  = var.enable_ami_housekeeper ? 1 : 0
+  source = "./modules/ami-housekeeper"
+
+  prefix        = var.prefix
+  tags          = local.tags
+  aws_partition = var.aws_partition
+
+  lambda_zip               = var.ami_housekeeper_lambda_zip
+  lambda_s3_bucket         = var.lambda_s3_bucket
+  lambda_s3_key            = var.ami_housekeeper_lambda_s3_key
+  lambda_s3_object_version = var.ami_housekeeper_lambda_s3_object_version
+
+  lambda_architecture       = var.lambda_architecture
+  lambda_principals         = var.lambda_principals
+  lambda_runtime            = var.lambda_runtime
+  lambda_security_group_ids = var.lambda_security_group_ids
+  lambda_subnet_ids         = var.lambda_subnet_ids
+  lambda_timeout            = var.ami_housekeeper_lambda_timeout
+  lambda_tracing_mode       = var.lambda_tracing_mode
+
+  logging_retention_in_days = var.logging_retention_in_days
+  logging_kms_key_id        = var.logging_kms_key_id
+  log_level                 = var.log_level
+
+  role_path                 = var.role_path
+  role_permissions_boundary = var.role_permissions_boundary
+
+  cleanup_config             = var.ami_housekeeper_cleanup_config
+  lambda_schedule_expression = var.ami_housekeeper_lambda_schedule_expression
 }

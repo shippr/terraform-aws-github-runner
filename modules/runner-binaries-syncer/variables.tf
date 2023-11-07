@@ -119,24 +119,13 @@ variable "runner_architecture" {
 variable "logging_retention_in_days" {
   description = "Specifies the number of days you want to retain log events for the lambda log group. Possible values are: 0, 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, and 3653."
   type        = number
-  default     = 7
+  default     = 180
 }
 
 variable "logging_kms_key_id" {
   description = "Specifies the kms key id to encrypt the logs with"
   type        = string
   default     = null
-}
-
-variable "runner_allow_prerelease_binaries" {
-  description = "(Deprecated, no longer used), allow the runners to update to prerelease binaries."
-  type        = bool
-  default     = null
-
-  validation {
-    condition     = var.runner_allow_prerelease_binaries == null
-    error_message = "The \"runner_allow_prerelease_binaries\" variable is no longer used. GitHub runners are not released as pre-release, only releases should be used."
-  }
 }
 
 variable "lambda_s3_bucket" {
@@ -173,16 +162,6 @@ variable "aws_partition" {
   description = "(optional) partition for the base arn if not 'aws'"
   type        = string
   default     = "aws"
-}
-
-variable "log_type" {
-  description = "Logging format for lambda logging. Valid values are 'json', 'pretty', 'hidden'. "
-  type        = string
-  default     = null
-  validation {
-    condition     = var.log_type == null
-    error_message = "DEPRECATED: `log_type` is not longer supported."
-  }
 }
 
 variable "log_level" {

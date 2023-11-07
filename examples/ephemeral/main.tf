@@ -38,7 +38,7 @@ module "runners" {
   runners_lambda_zip                = "../../lambda_output/runners.zip"
 
   enable_organization_runners = true
-  runner_extra_labels         = "default,example"
+  runner_extra_labels         = ["default", "example"]
 
   # enable access to the runners via SSM
   enable_ssm_on_runners = true
@@ -71,7 +71,7 @@ module "runners" {
 
   # configure your pre-built AMI
   # enable_userdata = false
-  # ami_filter       = { name = ["github-runner-amzn2-x86_64-*"] }
+  # ami_filter       = { name = ["github-runner-al2023-x86_64-*"], state = ["available"] }
   # data "aws_caller_identity" "current" {}
   # ami_owners       = [data.aws_caller_identity.current.account_id]
 
@@ -84,4 +84,16 @@ module "runners" {
   #   maxReceiveCount     = 50 # 50 retries every 30 seconds => 25 minutes
   #   deadLetterTargetArn = null
   # }
+}
+
+module "webhook_github_app" {
+  source     = "../../modules/webhook-github-app"
+  depends_on = [module.runners]
+
+  github_app = {
+    key_base64     = var.github_app.key_base64
+    id             = var.github_app.id
+    webhook_secret = random_id.random.hex
+  }
+  webhook_endpoint = module.runners.webhook.endpoint
 }

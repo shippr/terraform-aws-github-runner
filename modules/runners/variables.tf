@@ -73,6 +73,12 @@ variable "block_device_mappings" {
   }]
 }
 
+variable "ebs_optimized" {
+  description = "The EC2 EBS optimized configuration."
+  type        = bool
+  default     = false
+}
+
 variable "instance_target_capacity_type" {
   description = "Default lifecyle used runner instances, can be either `spot` or `on-demand`."
   type        = string
@@ -112,14 +118,8 @@ variable "runner_os" {
   }
 }
 
-variable "instance_type" { # tflint-ignore: terraform_unused_declarations
-  description = "[DEPRECATED] See instance_types."
-  type        = string
-  default     = "m5.large"
-}
-
 variable "instance_types" {
-  description = "List of instance types for the action runner. Defaults are based on runner_os (amzn2 for linux and Windows Server Core for win)."
+  description = "List of instance types for the action runner. Defaults are based on runner_os (al2023 for linux and Windows Server Core for win)."
   type        = list(string)
   default     = null
 }
@@ -127,7 +127,12 @@ variable "instance_types" {
 variable "ami_filter" {
   description = "Map of lists used to create the AMI filter for the action runner AMI."
   type        = map(list(string))
-  default     = null
+  default     = { state = ["available"] }
+  validation {
+    # check the availability of the AMI
+    condition     = contains(keys(var.ami_filter), "state")
+    error_message = "The \"ami_filter\" variable must contain the \"state\" key with the value \"available\"."
+  }
 }
 
 variable "ami_owners" {
@@ -180,7 +185,8 @@ variable "sqs_build_queue" {
 }
 
 variable "enable_organization_runners" {
-  type = bool
+  description = "Register runners to organization, instead of repo level"
+  type        = bool
 }
 
 variable "github_app_parameters" {
@@ -209,10 +215,9 @@ variable "runner_boot_time_in_minutes" {
   default     = 5
 }
 
-variable "runner_extra_labels" {
-  description = "Extra labels for the runners (GitHub). Separate each label by a comma"
-  type        = string
-  default     = ""
+variable "runner_labels" {
+  description = "All the labels for the runners (GitHub) including the default one's(e.g: self-hosted, linux, x64, label1, label2). Separate each label by a comma"
+  type        = list(string)
 }
 
 variable "runner_group_name" {
@@ -290,9 +295,10 @@ variable "runner_architecture" {
 variable "idle_config" {
   description = "List of time period that can be defined as cron expression to keep a minimum amount of runners active instead of scaling down to 0. By defining this list you can ensure that in time periods that match the cron expression within 5 seconds a runner is kept idle."
   type = list(object({
-    cron      = string
-    timeZone  = string
-    idleCount = number
+    cron             = string
+    timeZone         = string
+    idleCount        = number
+    evictionStrategy = optional(string, "oldest_first")
   }))
   default = []
 }
@@ -453,16 +459,6 @@ variable "egress_rules" {
   }]
 }
 
-variable "log_type" {
-  description = "Logging format for lambda logging. Valid values are 'json', 'pretty', 'hidden'. "
-  type        = string
-  default     = null
-  validation {
-    condition     = var.log_type == null
-    error_message = "DEPRECATED: `log_type` is not longer supported."
-  }
-}
-
 variable "log_level" {
   description = "Logging level for lambda logging. Valid values are  'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'."
   type        = string
@@ -493,7 +489,7 @@ variable "metadata_options" {
   default = {
     instance_metadata_tags      = "enabled"
     http_endpoint               = "enabled"
-    http_tokens                 = "optional"
+    http_tokens                 = "required"
     http_put_response_hop_limit = 1
   }
 }
@@ -604,4 +600,38 @@ variable "credit_specification" {
     condition     = var.credit_specification == null ? true : contains(["standard", "unlimited"], var.credit_specification)
     error_message = "Valid values for credit_specification are (null, \"standard\", \"unlimited\")."
   }
+}
+
+variable "enable_jit_config" {
+  description = "Overwrite the default behavior for JIT configuration. By default JIT configuration is enabled for ephemeral runners and disabled for non-ephemeral runners. In case of GHES check first if the JIT config API is avaialbe. In case you upgradeing from 3.x to 4.x you can set `enable_jit_config` to `false` to avoid a breaking change when having your own AMI."
+  type        = bool
+  default     = null
+}
+
+variable "associate_public_ipv4_address" {
+  description = "Associate public IPv4 with the runner. Only tested with IPv4"
+  type        = bool
+  default     = false
+}
+
+variable "ssm_housekeeper" {
+  description = <<EOF
+  Configuration for the SSM housekeeper lambda. This lambda deletes token / JIT config from SSM.
+
+  `schedule_expression`: is used to configure the schedule for the lambda.
+  `enabled`: enable or disable the lambda trigger via the EventBridge.
+  `lambda_timeout`: timeout for the lambda in seconds.
+  `config`: configuration for the lambda function. Token path will be read by default from the module.
+  EOF
+  type = object({
+    schedule_expression = optional(string, "rate(1 day)")
+    enabled             = optional(bool, true)
+    lambda_timeout      = optional(number, 60)
+    config = object({
+      tokenPath      = optional(string)
+      minimumDaysOld = optional(number, 1)
+      dryRun         = optional(bool, false)
+    })
+  })
+  default = { config = {} }
 }
