@@ -29,17 +29,6 @@ variable "tags" {
   default     = {}
 }
 
-variable "environment" {
-  description = "A name that identifies the environment, used as prefix and for tagging."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.environment == null
-    error_message = "The \"environment\" variable is no longer used. To migrate, set the \"prefix\" variable to the original value of \"environment\" and optionally, add \"Environment\" to the \"tags\" variable map with the same value."
-  }
-}
-
 variable "prefix" {
   description = "The prefix used for naming resources"
   type        = string
@@ -197,6 +186,12 @@ variable "github_app_parameters" {
   })
 }
 
+variable "lambda_scale_down_memory_size" {
+  description = "Memory size limit in MB for scale down lambda."
+  type        = number
+  default     = 512
+}
+
 variable "scale_down_schedule_expression" {
   description = "Scheduler expression to check every x for scale down."
   type        = string
@@ -242,6 +237,12 @@ variable "scale_up_reserved_concurrent_executions" {
   description = "Amount of reserved concurrent executions for the scale-up lambda function. A value of 0 disables lambda from being triggered and -1 removes any concurrency limitations."
   type        = number
   default     = 1
+}
+
+variable "lambda_scale_up_memory_size" {
+  description = "Memory size limit in MB for scale-up lambda."
+  type        = number
+  default     = 512
 }
 
 variable "lambda_timeout_scale_up" {
@@ -512,6 +513,12 @@ variable "pool_lambda_timeout" {
   default     = 60
 }
 
+variable "pool_lambda_memory_size" {
+  description = "Lambda Memory size limit in MB for pool lambda"
+  type        = number
+  default     = 512
+}
+
 variable "pool_runner_owner" {
   description = "The pool will deploy runners to the GitHub org ID, set this value to the org to which you want the runners deployed. Repo level is not supported."
   type        = string
@@ -567,7 +574,7 @@ variable "enable_user_data_debug_logging" {
 }
 
 variable "ssm_paths" {
-  description = "The root path used in SSM to store configuration and secreets."
+  description = "The root path used in SSM to store configuration and secrets."
   type = object({
     root   = string
     tokens = string
@@ -585,11 +592,16 @@ variable "runner_name_prefix" {
   }
 }
 
-variable "lambda_tracing_mode" {
-  description = "Enable X-Ray tracing for the lambda functions."
-  type        = string
-  default     = null
+variable "tracing_config" {
+  description = "Configuration for lambda tracing."
+  type = object({
+    mode                  = optional(string, null)
+    capture_http_requests = optional(bool, false)
+    capture_error         = optional(bool, false)
+  })
+  default = {}
 }
+
 
 variable "credit_specification" {
   description = "The credit option for CPU usage of a T instance. Can be unset, \"standard\" or \"unlimited\"."
@@ -619,13 +631,15 @@ variable "ssm_housekeeper" {
   Configuration for the SSM housekeeper lambda. This lambda deletes token / JIT config from SSM.
 
   `schedule_expression`: is used to configure the schedule for the lambda.
-  `enabled`: enable or disable the lambda trigger via the EventBridge.
+  `state`: state of the cloudwatch event rule. Valid values are `DISABLED`, `ENABLED`, and `ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS`.
+  `lambda_memory_size`: lambda memery size limit.
   `lambda_timeout`: timeout for the lambda in seconds.
   `config`: configuration for the lambda function. Token path will be read by default from the module.
   EOF
   type = object({
     schedule_expression = optional(string, "rate(1 day)")
-    enabled             = optional(bool, true)
+    state               = optional(string, "ENABLED")
+    lambda_memory_size  = optional(number, 512)
     lambda_timeout      = optional(number, 60)
     config = object({
       tokenPath      = optional(string)
@@ -634,4 +648,10 @@ variable "ssm_housekeeper" {
     })
   })
   default = { config = {} }
+}
+
+variable "enable_on_demand_failover_for_errors" {
+  description = "Enable on-demand failover. For example to fall back to on demand when no spot capacity is available the variable can be set to `InsufficientInstanceCapacity`. When not defined the default behavior is to retry later."
+  type        = list(string)
+  default     = []
 }

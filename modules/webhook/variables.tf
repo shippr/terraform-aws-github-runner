@@ -10,17 +10,6 @@ variable "lambda_security_group_ids" {
   default     = []
 }
 
-variable "environment" {
-  description = "A name that identifies the environment, used as prefix and for tagging."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.environment == null
-    error_message = "The \"environment\" variable is no longer used. To migrate, set the \"prefix\" variable to the original value of \"environment\" and optionally, add \"Environment\" to the \"tags\" variable map with the same value."
-  }
-}
-
 variable "prefix" {
   description = "The prefix used for naming resources"
   type        = string
@@ -33,8 +22,8 @@ variable "tags" {
   default     = {}
 }
 
-variable "runner_config" {
-  description = "SQS queue to publish accepted build events based on the runner type. When exact match is disabled the webhook accecpts the event if one of the workflow job labels is part of the matcher. The priority defines the order the matchers are applied."
+variable "runner_matcher_config" {
+  description = "SQS queue to publish accepted build events based on the runner type. When exact match is disabled the webhook accepts the event if one of the workflow job labels is part of the matcher. The priority defines the order the matchers are applied."
   type = map(object({
     arn  = string
     id   = string
@@ -46,7 +35,7 @@ variable "runner_config" {
     })
   }))
   validation {
-    condition     = try(var.runner_config.matcherConfig.priority, 999) >= 0 && try(var.runner_config.matcherConfig.priority, 999) < 1000
+    condition     = try(var.runner_matcher_config.matcherConfig.priority, 999) >= 0 && try(var.runner_matcher_config.matcherConfig.priority, 999) < 1000
     error_message = "The priority of the matcher must be between 0 and 999."
   }
 }
@@ -63,6 +52,12 @@ variable "lambda_zip" {
   description = "File location of the lambda zip file."
   type        = string
   default     = null
+}
+
+variable "lambda_memory_size" {
+  description = "Memory size limit in MB for lambda."
+  type        = number
+  default     = 256
 }
 
 variable "lambda_timeout" {
@@ -149,7 +144,7 @@ variable "log_level" {
   }
   validation {
     condition     = !contains(["silly", "trace", "fatal"], var.log_level)
-    error_message = "PLEASE MIGRATE: The following log levels: 'silly', 'trace' and 'fatal' are not longeer supported."
+    error_message = "PLEASE MIGRATE: The following log levels: 'silly', 'trace' and 'fatal' are not longer supported."
   }
 }
 
@@ -182,8 +177,20 @@ variable "github_app_parameters" {
   })
 }
 
-variable "lambda_tracing_mode" {
-  description = "Enable X-Ray tracing for the lambda functions."
-  type        = string
-  default     = null
+variable "tracing_config" {
+  description = "Configuration for lambda tracing."
+  type = object({
+    mode                  = optional(string, null)
+    capture_http_requests = optional(bool, false)
+    capture_error         = optional(bool, false)
+  })
+  default = {}
+}
+
+variable "ssm_paths" {
+  description = "The root path used in SSM to store configuration and secrets."
+  type = object({
+    root    = string
+    webhook = string
+  })
 }

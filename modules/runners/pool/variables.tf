@@ -12,6 +12,7 @@ variable "config" {
       security_group_ids             = list(string)
       runtime                        = string
       architecture                   = string
+      memory_size                    = number
       timeout                        = number
       zip                            = string
       subnet_ids                     = list(string)
@@ -27,11 +28,12 @@ variable "config" {
     })
     subnet_ids = list(string)
     runner = object({
-      disable_runner_autoupdate = bool
-      ephemeral                 = bool
-      enable_jit_config         = bool
-      boot_time_in_minutes      = number
-      labels                    = list(string)
+      disable_runner_autoupdate            = bool
+      ephemeral                            = bool
+      enable_jit_config                    = bool
+      enable_on_demand_failover_for_errors = list(string)
+      boot_time_in_minutes                 = number
+      labels                               = list(string)
       launch_template = object({
         name = string
       })
@@ -69,8 +71,14 @@ variable "aws_partition" {
   default     = "aws"
 }
 
-variable "lambda_tracing_mode" {
-  description = "Enable X-Ray tracing for the lambda functions."
-  type        = string
-  default     = null
+variable "tracing_config" {
+  description = "Configuration for lambda tracing."
+  type = object({
+    mode                  = optional(string, null)
+    capture_http_requests = optional(bool, false)
+    capture_error         = optional(bool, false)
+  })
+  default = {}
 }
+
+

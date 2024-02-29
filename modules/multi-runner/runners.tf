@@ -3,8 +3,8 @@ module "runners" {
   for_each      = local.runner_config
   aws_region    = var.aws_region
   aws_partition = var.aws_partition
-  vpc_id        = var.vpc_id
-  subnet_ids    = var.subnet_ids
+  vpc_id        = coalesce(each.value.runner_config.vpc_id, var.vpc_id)
+  subnet_ids    = coalesce(each.value.runner_config.subnet_ids, var.subnet_ids)
   prefix        = "${var.prefix}-${each.key}"
   tags = merge(local.tags, {
     "ghr:environment" = "${var.prefix}-${each.key}"
@@ -34,6 +34,7 @@ module "runners" {
   sqs_build_queue                      = { "arn" : each.value.arn }
   github_app_parameters                = local.github_app_parameters
   ebs_optimized                        = each.value.runner_config.ebs_optimized
+  enable_on_demand_failover_for_errors = each.value.runner_config.enable_on_demand_failover_for_errors
   enable_organization_runners          = each.value.runner_config.enable_organization_runners
   enable_ephemeral_runners             = each.value.runner_config.enable_ephemeral_runners
   enable_jit_config                    = each.value.runner_config.enable_jit_config
@@ -62,11 +63,13 @@ module "runners" {
   lambda_runtime                   = var.lambda_runtime
   lambda_architecture              = var.lambda_architecture
   lambda_zip                       = var.runners_lambda_zip
+  lambda_scale_up_memory_size      = var.scale_up_lambda_memory_size
   lambda_timeout_scale_up          = var.runners_scale_up_lambda_timeout
+  lambda_scale_down_memory_size    = var.scale_down_lambda_memory_size
   lambda_timeout_scale_down        = var.runners_scale_down_lambda_timeout
   lambda_subnet_ids                = var.lambda_subnet_ids
   lambda_security_group_ids        = var.lambda_security_group_ids
-  lambda_tracing_mode              = var.lambda_tracing_mode
+  tracing_config                   = var.tracing_config
   logging_retention_in_days        = var.logging_retention_in_days
   logging_kms_key_id               = var.logging_kms_key_id
   enable_cloudwatch_agent          = each.value.runner_config.enable_cloudwatch_agent

@@ -14,15 +14,18 @@ resource "aws_lambda_function" "ami_housekeeper" {
   handler           = "index.handler"
   runtime           = var.lambda_runtime
   timeout           = var.lambda_timeout
-  memory_size       = 256
+  memory_size       = var.lambda_memory_size
   architectures     = [var.lambda_architecture]
 
   environment {
     variables = {
-      LOG_LEVEL                   = var.log_level
-      POWERTOOLS_LOGGER_LOG_EVENT = var.log_level == "debug" ? "true" : "false"
-      AMI_CLEANUP_OPTIONS         = jsonencode(var.cleanup_config)
-      SERVICE_NAME                = "ami-housekeeper"
+      LOG_LEVEL                                = var.log_level
+      POWERTOOLS_LOGGER_LOG_EVENT              = var.log_level == "debug" ? "true" : "false"
+      AMI_CLEANUP_OPTIONS                      = jsonencode(var.cleanup_config)
+      SERVICE_NAME                             = "ami-housekeeper"
+      POWERTOOLS_TRACE_ENABLED                 = var.tracing_config.mode != null ? true : false
+      POWERTOOLS_TRACER_CAPTURE_HTTPS_REQUESTS = var.tracing_config.capture_http_requests
+      POWERTOOLS_TRACER_CAPTURE_ERROR          = var.tracing_config.capture_error
     }
   }
 
@@ -37,9 +40,9 @@ resource "aws_lambda_function" "ami_housekeeper" {
   tags = var.tags
 
   dynamic "tracing_config" {
-    for_each = var.lambda_tracing_mode != null ? [true] : []
+    for_each = var.tracing_config.mode != null ? [true] : []
     content {
-      mode = var.lambda_tracing_mode
+      mode = var.tracing_config.mode
     }
   }
 }
@@ -100,7 +103,7 @@ resource "aws_cloudwatch_event_rule" "ami_housekeeper" {
   name                = "${var.prefix}-ami-housekeeper-rule"
   schedule_expression = var.lambda_schedule_expression
   tags                = var.tags
-  is_enabled          = true
+  state               = var.state_event_rule_ami_housekeeper
 }
 
 resource "aws_cloudwatch_event_target" "ami_housekeeper" {
@@ -123,7 +126,7 @@ resource "aws_lambda_permission" "ami_housekeeper" {
 }
 
 resource "aws_iam_role_policy" "ami_housekeeper_xray" {
-  count  = var.lambda_tracing_mode != null ? 1 : 0
+  count  = var.tracing_config.mode != null ? 1 : 0
   policy = data.aws_iam_policy_document.lambda_xray[0].json
   role   = aws_iam_role.ami_housekeeper.name
 }

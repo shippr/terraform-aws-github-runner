@@ -24,6 +24,12 @@ variable "lambda_timeout" {
   default     = 60
 }
 
+variable "lambda_memory_size" {
+  description = "Memory size linit in MB of the lambda."
+  type        = number
+  default     = 256
+}
+
 variable "role_permissions_boundary" {
   description = "Permissions boundary that will be added to the created role for the lambda."
   type        = string
@@ -124,10 +130,14 @@ variable "lambda_architecture" {
   }
 }
 
-variable "lambda_tracing_mode" {
-  description = "Enable X-Ray tracing for the lambda functions."
-  type        = string
-  default     = null
+variable "tracing_config" {
+  description = "Configuration for lambda tracing."
+  type = object({
+    mode                  = optional(string, null)
+    capture_http_requests = optional(bool, false)
+    capture_error         = optional(bool, false)
+  })
+  default = {}
 }
 
 # specif for this module
@@ -170,4 +180,15 @@ variable "cleanup_config" {
     ssmParameterNames   = optional(list(string))
   })
   default = {}
+}
+
+variable "state_event_rule_ami_housekeeper" {
+  type        = string
+  description = "State of the rule."
+  default     = "ENABLED"
+
+  validation {
+    condition     = contains(["ENABLED", "DISABLED", "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS"], var.state_event_rule_ami_housekeeper)
+    error_message = "`state_event_rule_ami_housekeeper` value is not valid, valid values are: `ENABLED`, `DISABLED`, `ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS`."
+  }
 }

@@ -1,5 +1,5 @@
 locals {
-  environment = "ephemeral"
+  environment = var.environment != null ? var.environment : "ephemeral"
   aws_region  = "eu-west-1"
 }
 
@@ -60,20 +60,29 @@ module "runners" {
   enable_ephemeral_runners = true
 
   # # Example of simple pool usages
-  # pool_runner_owner = "my-org"
+  # pool_runner_owner = "philips-test-runners"
   # pool_config = [{
-  #   size                = 20
+  #   size                = 3
   #   schedule_expression = "cron(* * * * ? *)"
   # }]
   #
   #
   enable_job_queued_check = true
 
+  # tracing_config = {
+  #   mode                  = "Active"
+  #   capture_error         = true
+  #   capture_http_requests = true
+  # }
+
+
   # configure your pre-built AMI
   # enable_userdata = false
-  # ami_filter       = { name = ["github-runner-al2023-x86_64-*"], state = ["available"] }
-  # data "aws_caller_identity" "current" {}
-  # ami_owners       = [data.aws_caller_identity.current.account_id]
+  # ami_filter      = { name = ["github-runner-al2023-x86_64-*"], state = ["available"] }
+  # ami_owners      = [data.aws_caller_identity.current.account_id]
+
+  # or use the default AMI
+  # enable_userdata = true
 
   # Enable debug logging for the lambda functions
   # log_level = "debug"

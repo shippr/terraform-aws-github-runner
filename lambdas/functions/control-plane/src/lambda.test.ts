@@ -1,8 +1,8 @@
-import { logger } from '@terraform-aws-github-runner/aws-powertools-util';
+import { captureLambdaHandler, logger } from '@terraform-aws-github-runner/aws-powertools-util';
 import { Context, SQSEvent, SQSRecord } from 'aws-lambda';
 import { mocked } from 'jest-mock';
 
-import { adjustPool, scaleDownHandler, scaleUpHandler, ssmHousekeeper } from './lambda';
+import { addMiddleware, adjustPool, scaleDownHandler, scaleUpHandler, ssmHousekeeper } from './lambda';
 import { adjust } from './pool/pool';
 import ScaleError from './scale-runners/ScaleError';
 import { scaleDown } from './scale-runners/scale-down';
@@ -64,6 +64,7 @@ jest.mock('./scale-runners/scale-down');
 jest.mock('./pool/pool');
 jest.mock('./scale-runners/ssm-housekeeper');
 jest.mock('@terraform-aws-github-runner/aws-powertools-util');
+jest.mock('@terraform-aws-github-runner/aws-ssm-util');
 
 // Docs for testing async with jest: https://jestjs.io/docs/tutorial-async
 describe('Test scale up lambda wrapper.', () => {
@@ -158,6 +159,14 @@ describe('Adjust pool.', () => {
     const logSpy = jest.spyOn(logger, 'error');
     await adjustPool({ poolSize: 0 }, context);
     expect(logSpy).lastCalledWith(expect.stringContaining(error.message), expect.anything());
+  });
+});
+
+describe('Test middleware', () => {
+  it('Should have a working middleware', async () => {
+    const mockedLambdaHandler = captureLambdaHandler as unknown as jest.Mock;
+    mockedLambdaHandler.mockReturnValue({ before: jest.fn(), after: jest.fn(), onError: jest.fn() });
+    expect(addMiddleware).not.toThrowError();
   });
 });
 

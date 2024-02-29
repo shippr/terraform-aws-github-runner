@@ -1,8 +1,9 @@
 locals {
   ssm_housekeeper = {
     schedule_expression = var.ssm_housekeeper.schedule_expression
-    enabled             = var.ssm_housekeeper.enabled
+    state               = var.ssm_housekeeper.state
     lambda_timeout      = var.ssm_housekeeper.lambda_timeout
+    lambda_memory_size  = var.ssm_housekeeper.lambda_memory_size
     config = {
       tokenPath      = var.ssm_housekeeper.config.tokenPath == null ? local.token_path : var.ssm_housekeeper.config.tokenPath
       minimumDaysOld = var.ssm_housekeeper.config.minimumDaysOld
@@ -23,15 +24,18 @@ resource "aws_lambda_function" "ssm_housekeeper" {
   runtime           = var.lambda_runtime
   timeout           = local.ssm_housekeeper.lambda_timeout
   tags              = local.tags
-  memory_size       = 512
+  memory_size       = local.ssm_housekeeper.lambda_memory_size
   architectures     = [var.lambda_architecture]
 
   environment {
     variables = {
-      ENVIRONMENT        = var.prefix
-      LOG_LEVEL          = var.log_level
-      SSM_CLEANUP_CONFIG = jsonencode(local.ssm_housekeeper.config)
-      SERVICE_NAME       = "ssm-housekeeper"
+      ENVIRONMENT                              = var.prefix
+      LOG_LEVEL                                = var.log_level
+      SSM_CLEANUP_CONFIG                       = jsonencode(local.ssm_housekeeper.config)
+      SERVICE_NAME                             = "ssm-housekeeper"
+      POWERTOOLS_TRACE_ENABLED                 = var.tracing_config.mode != null ? true : false
+      POWERTOOLS_TRACER_CAPTURE_HTTPS_REQUESTS = var.tracing_config.capture_http_requests
+      POWERTOOLS_TRACER_CAPTURE_ERROR          = var.tracing_config.capture_error
     }
   }
 
@@ -44,9 +48,9 @@ resource "aws_lambda_function" "ssm_housekeeper" {
   }
 
   dynamic "tracing_config" {
-    for_each = var.lambda_tracing_mode != null ? [true] : []
+    for_each = var.tracing_config.mode != null ? [true] : []
     content {
-      mode = var.lambda_tracing_mode
+      mode = var.tracing_config.mode
     }
   }
 }
@@ -62,7 +66,7 @@ resource "aws_cloudwatch_event_rule" "ssm_housekeeper" {
   name                = "${var.prefix}-ssm-housekeeper"
   schedule_expression = local.ssm_housekeeper.schedule_expression
   tags                = var.tags
-  is_enabled          = local.ssm_housekeeper.enabled
+  state               = local.ssm_housekeeper.state
 }
 
 resource "aws_cloudwatch_event_target" "ssm_housekeeper" {
@@ -110,7 +114,7 @@ resource "aws_iam_role_policy_attachment" "ssm_housekeeper_vpc_execution_role" {
 }
 
 resource "aws_iam_role_policy" "ssm_housekeeper_xray" {
-  count  = var.lambda_tracing_mode != null ? 1 : 0
+  count  = var.tracing_config.mode != null ? 1 : 0
   policy = data.aws_iam_policy_document.lambda_xray[0].json
   role   = aws_iam_role.ssm_housekeeper.name
 }
