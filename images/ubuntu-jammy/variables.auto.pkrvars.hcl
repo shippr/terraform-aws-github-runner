@@ -1,5 +1,5 @@
 
-# Build command: packer build -var-file=./variables.auto.pkrvars.hcl github_agent.ubuntu.pkr.hcl
+# Build command: AWS_PROFILE=staging packer build -var-file=./variables.auto.pkrvars.hcl github_agent.ubuntu.pkr.hcl
 
 custom_shell_commands = [
   # https://github.com/nodesource/distributions?tab=readme-ov-file#installation-instructions
@@ -22,6 +22,6 @@ custom_shell_commands = [
   # Install Terraform
   "git clone https://github.com/tfutils/tfenv.git ~/.tfenv",
   "sudo ln -s ~/.tfenv/bin/* /usr/local/bin",
-  "tfenv install 1.4.0",
-  "tfenv use 1.4.0"
+  "tfenv install 1.5.7",
+  "tfenv use 1.5.7"
 ]
