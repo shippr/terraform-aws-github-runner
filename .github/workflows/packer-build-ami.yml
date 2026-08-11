@@ -88,10 +88,17 @@ jobs:
           aws configure set profile.staging.role_arn arn:aws:iam::615233017924:role/StagingInfrastructureRole
           aws configure set profile.staging.credential_source Ec2InstanceMetadata
 
+      # `inputs.runner_version` is attacker-controlled in the sense that
+      # matters here: anyone who can dispatch the workflow chooses it. It goes
+      # through `env` and is read as a shell variable, never interpolated into
+      # the script body, so it cannot break out and run commands (zizmor
+      # template-injection).
       - name: Report the version being baked
+        env:
+          RUNNER_VERSION: ${{ inputs.runner_version }}
         run: |
-          if [ -n "${{ inputs.runner_version }}" ]; then
-            echo "Requested runner version: ${{ inputs.runner_version }}"
+          if [ -n "$RUNNER_VERSION" ]; then
+            echo "Requested runner version: $RUNNER_VERSION"
           else
             latest=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
             echo "Latest actions/runner release: $latest"
@@ -103,11 +110,13 @@ jobs:
       - name: packer build
         env:
           AWS_PROFILE: staging
+          RUNNER_VERSION: ${{ inputs.runner_version }}
         run: |
-          packer build \
-            -var-file=./variables.auto.pkrvars.hcl \
-            ${{ inputs.runner_version && format('-var runner_version={0}', inputs.runner_version) || '' }} \
-            github_agent.ubuntu.pkr.hcl
+          args=(-var-file=./variables.auto.pkrvars.hcl)
+          if [ -n "$RUNNER_VERSION" ]; then
+            args+=(-var "runner_version=$RUNNER_VERSION")
+          fi
+          packer build "${args[@]}" github_agent.ubuntu.pkr.hcl
 
       - name: Show the resulting AMI
         env:
