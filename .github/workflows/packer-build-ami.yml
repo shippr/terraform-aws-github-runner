@@ -1,0 +1,120 @@
+name: "Build runner AMI"
+
+# Rebuilds the ubuntu-jammy runner AMI on a schedule.
+#
+# WHY THIS EXISTS
+#
+# The GitHub Actions runner binary is baked into the AMI, and the fleet runs
+# with auto-update disabled (`disableUpdate=true` on the broker request), so a
+# runner can never upgrade itself. GitHub deprecates old runner versions on a
+# published date, and from that date the broker answers `403 Forbidden` with
+# "Runner version vX is deprecated and cannot receive messages". The instance
+# then shuts itself down seconds after boot, so every job sits `queued` forever
+# with no runner ever claiming it, and nothing in the AWS-side pipeline looks
+# broken: the webhook dispatches, SQS drains, scale-up launches instances.
+#
+# That is exactly what happened on 2026-08-11 with runner v2.334.0, whose
+# deprecation date was 2026-08-10. The warning had been printed as an
+# annotation on every CI run for weeks and was missed.
+#
+# `images/ubuntu-jammy/github_agent.ubuntu.pkr.hcl` defaults `runner_version`
+# to the latest release of `actions/runner`, so a plain rebuild is the whole
+# fix. Running it monthly keeps the baked version comfortably inside GitHub's
+# support window without anyone having to watch for the announcement.
+#
+# CONSUMING THE RESULT
+#
+# The AMI name is timestamped, and `shippr/shippr`'s `infra/github-ci` matches
+# it with the wildcard `github-runner-ubuntu-jammy-amd64-*` against a
+# `most_recent = true` data source. So a new AMI is picked up by the next
+# instance the fleet launches, with no Terraform change and no apply.
+#
+# WHY SELF-HOSTED
+#
+# AWS credentials come from the runner instance profile
+# (`credential_source = Ec2InstanceMetadata`), which is only available on the
+# fleet itself; there is no OIDC role for GitHub-hosted runners in the staging
+# account. That is circular — this workflow cannot rebuild a fleet that is
+# already dead — but the monthly cadence means it runs long before any
+# deprecation date, and a fleet that is already dead has to be rebuilt by hand
+# from a laptop anyway. An OIDC role in the staging account removes the
+# circularity and is being added separately; once it exists this job should move
+# to `ubuntu-latest` and assume that role instead.
+
+on:
+  schedule:
+    # 04:00 UTC on the 2nd of each month. Not the 1st: month boundaries are
+    # when everything else scheduled piles up.
+    - cron: "0 4 2 * *"
+  workflow_dispatch:
+    inputs:
+      runner_version:
+        description:
+          "Runner version to bake, without the leading v (default: latest
+          release)"
+        type: string
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ubuntu-jammy AMI
+    runs-on: [self-hosted, x64, build-runner]
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: images/ubuntu-jammy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install packer
+        uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3.4.0
+        with:
+          version: "1.15.3"
+
+      - name: Configure AWS profile
+        run: |
+          aws configure set profile.staging.region eu-west-1
+          aws configure set profile.staging.role_arn arn:aws:iam::615233017924:role/StagingInfrastructureRole
+          aws configure set profile.staging.credential_source Ec2InstanceMetadata
+
+      - name: Report the version being baked
+        run: |
+          if [ -n "${{ inputs.runner_version }}" ]; then
+            echo "Requested runner version: ${{ inputs.runner_version }}"
+          else
+            latest=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+            echo "Latest actions/runner release: $latest"
+          fi
+
+      - name: packer init
+        run: packer init .
+
+      - name: packer build
+        env:
+          AWS_PROFILE: staging
+        run: |
+          packer build \
+            -var-file=./variables.auto.pkrvars.hcl \
+            ${{ inputs.runner_version && format('-var runner_version={0}', inputs.runner_version) || '' }} \
+            github_agent.ubuntu.pkr.hcl
+
+      - name: Show the resulting AMI
+        env:
+          AWS_PROFILE: staging
+        run: |
+          aws ec2 describe-images \
+            --owners self \
+            --filters 'Name=name,Values=github-runner-ubuntu-jammy-amd64-*' \
+            --query 'sort_by(Images,&CreationDate)[-3:].[Name,ImageId,CreationDate]' \
+            --output table
