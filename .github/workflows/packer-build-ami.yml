@@ -24,10 +24,23 @@ name: "Build runner AMI"
 #
 # CONSUMING THE RESULT
 #
-# The AMI name is timestamped, and `shippr/shippr`'s `infra/github-ci` matches
-# it with the wildcard `github-runner-ubuntu-jammy-amd64-*` against a
-# `most_recent = true` data source. So a new AMI is picked up by the next
-# instance the fleet launches, with no Terraform change and no apply.
+# Building an AMI changes nothing on its own. `shippr/shippr`'s
+# `infra/github-ci` resolves the timestamped name with the wildcard
+# `github-runner-ubuntu-jammy-amd64-*` (`most_recent = true`) at PLAN time and
+# writes the id to an SSM parameter the launch templates read, so the fleet
+# moves only when that stack is applied. `refresh-runner-ami.yml` in
+# shippr/shippr is that apply: it runs at 08:00 UTC on the 2nd, a few hours
+# after this build, and applies the SSM `ami_id` diff and nothing else. After a
+# manual dispatch here, dispatch it there too.
+#
+# WHAT ELSE IS BAKED
+#
+# Besides the runner, the AMI carries what shippr/shippr's test jobs would
+# otherwise download every run: the service images of `test.yml`, the pinned
+# pnpm, a warm pnpm store and Chromium. The store is installed from
+# `workspace-manifests.tgz` (every package.json, the lockfile and patches of
+# that private repository), which its `upload-runner-ami-inputs.yml` puts in
+# S3 on every lockfile change and weekly; this role may read that one object.
 #
 # WHY GITHUB-HOSTED, NOT SELF-HOSTED
 #
@@ -115,6 +128,19 @@ jobs:
             latest=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
             echo "Latest actions/runner release: $latest"
           fi
+
+      # Fails the build when the object is missing (the bucket expires
+      # objects after 10 days, and the uploader refreshes it weekly): an AMI
+      # without the warm store would roll out silently and cost every test job
+      # a full download.
+      - name: Download the workspace manifests
+        run: |
+          aws s3 cp s3://shippr-github-cache-bucket/runner-ami/workspace-manifests.tgz ./workspace-manifests.tgz
+          tar xzf workspace-manifests.tgz -O pnpm-lock.yaml > /dev/null
+          aws s3api head-object \
+            --bucket shippr-github-cache-bucket \
+            --key runner-ami/workspace-manifests.tgz \
+            --query LastModified --output text
 
       - name: packer init
         run: packer init .

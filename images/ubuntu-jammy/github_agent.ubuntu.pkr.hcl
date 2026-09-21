@@ -89,6 +89,12 @@ variable "temporary_security_group_source_public_ip" {
   default     = false
 }
 
+variable "workspace_manifests_path" {
+  description = "Tarball of shippr/shippr's package manifests (every package.json, pnpm-lock.yaml, pnpm-workspace.yaml, .npmrc, patches/), uploaded by its `upload-runner-ami-inputs.yml`. Installed once at build time to warm the pnpm store."
+  type        = string
+  default     = "./workspace-manifests.tgz"
+}
+
 data "http" github_runner_release_json {
   url = "https://api.github.com/repos/actions/runner/releases/latest"
   request_headers = {
@@ -169,6 +175,51 @@ build {
       "unzip awscliv2.zip",
       "sudo ./aws/install",
     ], var.custom_shell_commands)
+  }
+
+  # Warm pnpm store, pnpm metadata cache and Chromium for shippr/shippr's CI.
+  # The workspace is installed once in a scratch directory and thrown away;
+  # what stays in the AMI is the content-addressed store (plus the side-effects
+  # cache of the packages that build), which a CI job then links from with
+  # `--prefer-offline` instead of downloading. Everything lands under /opt as
+  # root: the runners run as root (`runner_as_root` in infra/github-ci).
+  #
+  # `CI=1` skips the root `prepare` script (husky needs a .git, and there is
+  # none here). Dependency build scripts run only for the `allowBuilds` list
+  # of shippr/shippr's pnpm-workspace.yaml; the two native ones there without
+  # a prebuild (unix-dgram, cpu-features) are optional dependencies, so a
+  # missing compiler only skips them.
+  # `.npmrc` holds no registry token: every package is public.
+  provisioner "file" {
+    source      = var.workspace_manifests_path
+    destination = "/tmp/workspace-manifests.tgz"
+  }
+
+  provisioner "shell" {
+    environment_vars = [
+      "DEBIAN_FRONTEND=noninteractive",
+      "CI=1",
+      "COREPACK_ENABLE_DOWNLOAD_PROMPT=0",
+      # Also for `pnpm exec` below: pnpm 11 checks node_modules before running
+      # a binary, and one installed from another store counts as stale, so it
+      # would purge and reinstall into the default store under /root.
+      "pnpm_config_store_dir=/opt/pnpm-store",
+      "pnpm_config_cache_dir=/opt/pnpm-cache",
+    ]
+    execute_command = "chmod +x {{ .Path }}; sudo env {{ .Vars }} {{ .Path }}"
+    inline_shebang  = "/bin/bash -e"
+    inline = [
+      "set -euxo pipefail",
+      "scratch=$(mktemp -d /tmp/workspace.XXXXXX)",
+      "tar xzf /tmp/workspace-manifests.tgz -C \"$scratch\"",
+      "cd \"$scratch\"",
+      "corepack pnpm install --frozen-lockfile --store-dir /opt/pnpm-store --cache-dir /opt/pnpm-cache",
+      "PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright corepack pnpm exec playwright install --with-deps chromium",
+      "cd /",
+      "rm -rf \"$scratch\" /tmp/workspace-manifests.tgz",
+      "du -sh /opt/pnpm-store /opt/pnpm-cache /opt/ms-playwright",
+      "df -h /",
+    ]
   }
 
   provisioner "file" {
