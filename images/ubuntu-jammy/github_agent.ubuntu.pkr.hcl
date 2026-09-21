@@ -259,6 +259,80 @@ build {
     ]
   }
 
+  # Read the AMI's hot files once at boot, in the background. A volume made
+  # from a snapshot fetches each block from S3 on its first read, which cost
+  # about 25 s of boot (the AWS CLI, the runner, the CloudWatch agent all
+  # load from cold disk) and about 25 s of `pnpm install` per job. Reading
+  # ahead turns those into local reads by the time they are needed.
+  #
+  # Order is by when a job needs a file: the AWS CLI (start-runner.sh, about
+  # 18 s after the kernel), the runner and the agent (about 34 s), the
+  # runner's node for JavaScript actions (checkout), then the pnpm store
+  # (`install-node-modules`, about 40 s after the runner starts). In the
+  # store the index comes first, then every inode (a hardlink import needs
+  # only those), then the file contents, which the tests read through the
+  # hardlinks. Contents are read in parallel: lazy loading is bound by
+  # latency per block, not by bandwidth.
+  #
+  # `Type=simple` and no `DefaultDependencies`: the unit starts as soon as
+  # the root filesystem is up, and nothing waits for it (a oneshot wanted by
+  # multi-user.target would hold back cloud-final and so the runner). The
+  # pnpm cache is left out: a frozen-lockfile install does not read it.
+  provisioner "shell" {
+    execute_command = "chmod +x {{ .Path }}; sudo {{ .Path }}"
+    inline_shebang  = "/bin/bash -e"
+    inline = [
+      <<-EOT
+      cat > /usr/local/sbin/prewarm-disk <<'EOF'
+      #!/bin/bash
+      set -u
+      log() { echo "prewarm-disk: $* after $(cut -d' ' -f1 /proc/uptime) s"; }
+      read_tree() {
+        if [ -e "$1" ]; then
+          find "$1" -type f -print0 | xargs -0 -r -P "$2" -n 64 cat > /dev/null 2>&1
+          log "read $1"
+        fi
+      }
+      log "start"
+      read_tree /usr/local/aws-cli 4
+      read_tree /opt/actions-runner/bin 4
+      read_tree /opt/aws/amazon-cloudwatch-agent/bin 4
+      read_tree /opt/actions-runner/externals 4
+      for store in /opt/pnpm-store/*/; do
+        for index in "$store"index.db* "$store"index; do
+          read_tree "$index" 8
+        done
+        find "$store" -printf '%s\n' > /dev/null
+        log "stat $store"
+        read_tree "$store" 16
+      done
+      log "done"
+      EOF
+      chmod 755 /usr/local/sbin/prewarm-disk
+      cat > /etc/systemd/system/prewarm-disk.service <<'EOF'
+      [Unit]
+      Description=Read the AMI's hot files ahead of the runner and its first job
+      DefaultDependencies=no
+      After=local-fs.target
+      Conflicts=shutdown.target
+      Before=shutdown.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/sbin/prewarm-disk
+      Nice=10
+      IOSchedulingClass=best-effort
+      IOSchedulingPriority=7
+      StandardOutput=journal+console
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      systemctl enable prewarm-disk.service
+      EOT
+    ]
+  }
+
   post-processor "manifest" {
     output     = "manifest.json"
     strip_path = true
