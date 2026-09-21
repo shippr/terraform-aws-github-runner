@@ -46,5 +46,10 @@ jobs:
         run: packer init .
       - name: check packer formatting
         run: packer fmt -recursive -check=true .
+      # The real build downloads this tarball from S3 before `packer build`
+      # (packer-build-ami.yml); validate only needs the file provisioner's
+      # source to exist.
+      - name: stub the workspace manifests tarball
+        run: touch workspace-manifests.tgz
       - name: packer validate
         run: packer validate -evaluate-datasources .
