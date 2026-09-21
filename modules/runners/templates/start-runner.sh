@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# A burst of runners booting at once throttles SSM: on 2026-09-21 one runner's
+# `aws ssm delete-parameter` failed with ThrottlingException, the script exited
+# and the runner stayed registered but idle while its job queued. Let the AWS
+# CLI back off and retry instead of failing on the first throttle.
+export AWS_RETRY_MODE=adaptive
+export AWS_MAX_ATTEMPTS=10
+
 # https://docs.aws.amazon.com/xray/latest/devguide/xray-api-sendingdata.html
 # https://docs.aws.amazon.com/xray/latest/devguide/scorekeep-scripts.html
 create_xray_start_segment() {
