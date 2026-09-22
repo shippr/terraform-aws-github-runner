@@ -304,8 +304,10 @@ build {
         done
         find "$store" -printf '%s\n' > /dev/null
         log "stat $store"
-        read_tree "$store" 16
       done
+      # Not the store's file contents: reading all 4 GB in parallel competed
+      # with `pnpm install` for the volume's throughput, and install went from
+      # 50 s to 80 s (shippr run 35676213803, 2026-09-22).
       log "done"
       EOF
       chmod 755 /usr/local/sbin/prewarm-disk
