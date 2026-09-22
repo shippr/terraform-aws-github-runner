@@ -104,6 +104,9 @@ cleanup() {
     echo "ERROR: runner-start-failed with exit code $exit_code occurred on $error_location"
     create_xray_error_segment "$SEGMENT" "runner-start-failed with exit code $exit_code occurred on $error_location - $error_lineno"
   fi
+  if [ -n "$${cloudwatch_agent_pid:-}" ]; then
+    wait "$cloudwatch_agent_pid" || echo "Warning: starting the CloudWatch agent failed with exit code $?"
+  fi
   # allows to flush the cloud watch logs and traces
   sleep 10
   if [ "$agent_mode" = "ephemeral" ] || [ "$exit_code" -ne 0 ]; then
@@ -199,9 +202,14 @@ if [[ "$xray_trace_id" != "" ]]; then
   echo "$SEGMENT"
 fi
 
+# Start the agent in the background: fetching its config and starting it took
+# about 8 s of every boot, and nothing below needs it. It ships the log files
+# from their beginning once it is up, so no line is lost; `cleanup` waits for
+# it before the final flush.
 if [[ "$enable_cloudwatch_agent" == "true" ]]; then
-  echo "Cloudwatch is enabled"
-  amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c "ssm:$ssm_config_path/cloudwatch_agent_config_runner"
+  echo "Cloudwatch is enabled, starting the agent in the background"
+  amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c "ssm:$ssm_config_path/cloudwatch_agent_config_runner" &
+  cloudwatch_agent_pid=$!
 fi
 
 ## Configure the runner
