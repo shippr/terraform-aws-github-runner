@@ -252,10 +252,43 @@ build {
     destination = "/tmp/start-runner.sh"
   }
 
+  # The runner starts from its own unit as soon as the network is up, not as
+  # a cloud-init per-boot script. Per-boot scripts run in cloud-final, which
+  # waits for all of multi-user.target (docker, snapd seeding, lxd, the SSM
+  # agent snap): on shippr run 42898762722 (Nov 2026) the script started at
+  # 25-31 s of uptime, though the network was up at about 15 s and nothing it
+  # does needs those services. Jobs that use docker reach it through
+  # docker.socket, which listens from early boot and holds the first call
+  # until the daemon is up.
+  #
+  # `HOME=/root`: a system unit gets no HOME, and the jobs expect root's,
+  # where the AMI caches the pinned pnpm (corepack) and node-gyp headers.
+  # No `Restart=`: the script registers an ephemeral runner, runs one job and
+  # terminates the instance; it must never run twice.
+  # `enable` without `--now`: it must not start on the Packer builder.
   provisioner "shell" {
+    execute_command = "chmod +x {{ .Path }}; sudo {{ .Path }}"
+    inline_shebang  = "/bin/bash -e"
     inline = [
-      "sudo mv /tmp/start-runner.sh /var/lib/cloud/scripts/per-boot/start-runner.sh",
-      "sudo chmod +x /var/lib/cloud/scripts/per-boot/start-runner.sh",
+      <<-EOT
+      install -m 755 /tmp/start-runner.sh /usr/local/sbin/start-runner.sh
+      rm /tmp/start-runner.sh
+      cat > /etc/systemd/system/start-runner.service <<'EOF'
+      [Unit]
+      Description=Register the ephemeral GitHub runner and run its job
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=simple
+      Environment=HOME=/root
+      ExecStart=/usr/local/sbin/start-runner.sh
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      systemctl enable start-runner.service
+      EOT
     ]
   }
 
@@ -265,9 +298,10 @@ build {
   # load from cold disk) and about 25 s of `pnpm install` per job. Reading
   # ahead turns those into local reads by the time they are needed.
   #
-  # Order is by when a job needs a file: the AWS CLI (start-runner.sh, about
-  # 18 s after the kernel), the runner and the agent (about 34 s), the
-  # runner's node for JavaScript actions (checkout), then the pnpm store
+  # Order is by when a job needs a file: the AWS CLI (start-runner.sh, once
+  # the network is up), the runner and the agent, the runner's node for
+  # JavaScript actions (checkout), the system node (its first start in
+  # `corepack enable` took ~3.3 s of every job's install), then the pnpm store
   # (`install-node-modules`, about 40 s after the runner starts). In the
   # store the index comes first, then every inode (a hardlink import needs
   # only those), then the file contents, which the tests read through the
@@ -276,7 +310,7 @@ build {
   #
   # `Type=simple` and no `DefaultDependencies`: the unit starts as soon as
   # the root filesystem is up, and nothing waits for it (a oneshot wanted by
-  # multi-user.target would hold back cloud-final and so the runner). The
+  # multi-user.target would hold back everything ordered after it). The
   # pnpm cache is left out: a frozen-lockfile install does not read it.
   provisioner "shell" {
     execute_command = "chmod +x {{ .Path }}; sudo {{ .Path }}"
@@ -298,6 +332,8 @@ build {
       read_tree /opt/actions-runner/bin 4
       read_tree /opt/aws/amazon-cloudwatch-agent/bin 4
       read_tree /opt/actions-runner/externals 4
+      # The real file: `find` does not follow a symlink given as its root.
+      read_tree "$(readlink -f /usr/bin/node)" 1
       for store in /opt/pnpm-store/*/; do
         for index in "$store"index.db* "$store"index; do
           read_tree "$index" 8
